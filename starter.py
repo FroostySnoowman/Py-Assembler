@@ -245,7 +245,6 @@ def encode_program(lines, label_table, data_table):
     """
     binary_instructions = []
     for line_num, line in enumerate(lines):
-        print(line)
         binary_instructions.append(encode_instruction(line_num, line, label_table, data_table))
     return binary_instructions
 
