@@ -11,11 +11,8 @@ def preprocess_lines(lines):
     """
     preprocessed_lines = []
     for line in lines:
-        # Remove inline comments
         line = line.split('#')[0]
-        # Strip whitespace from start and end of the line
         line = line.strip()
-        # Add non-blank lines to the preprocessed list
         if line:
             preprocessed_lines.append(line)
     return preprocessed_lines
@@ -42,24 +39,20 @@ def build_data_table(lines):
     memory_address = 0
 
     for line in lines:
-        # Check if we are entering the .data section
         if line.startswith(".data"):
             in_data_section = True
             continue
-        # Check if we are exiting the .data section
         elif line.startswith(".text"):
             in_data_section = False
-            continue  # Skip adding the ".text" line to new_lines
+            continue
 
         if in_data_section:
-            # Parse the data section
-            if ':' in line:  # Data label with value
+            if ':' in line:
                 label, value = map(str.strip, line.split(':'))
                 data_table[label] = memory_address
-                data_list.append(int(value))  # Assuming values are integers
+                data_list.append(int(value))
                 memory_address += 1
         else:
-            # Add instructions to the new_lines
             new_lines.append(line)
 
     return data_table, data_list, new_lines
@@ -82,14 +75,14 @@ def create_label_table(lines):
     instruction_count = 0
 
     for line in lines:
-        if ':' in line:  # Check if the line contains a label
+        if ':' in line:
             label, rest_of_line = line.split(':', 1)
             label = label.strip()
-            if label:  # If it's a valid label
+            if label:
                 label_table[label] = instruction_count
-            line = rest_of_line.strip()  # Keep the rest of the line if there's code after the label
+            line = rest_of_line.strip()
 
-        if line:  # If the line is not empty (after stripping the label)
+        if line:
             new_lines.append(line)
             instruction_count += 1
 
@@ -102,7 +95,7 @@ def register_to_binary(register):
     if not register.startswith("R") or not register[1:].isdigit():
         raise ValueError(f"Invalid register: {register}")
     register_num = int(register[1:])
-    if not (0 <= register_num <= 7):  # Registers are 3 bits, so only R0-R7 are valid
+    if not (0 <= register_num <= 7):
         raise ValueError(f"Register out of range: {register}")
     return f"{register_num:03b}"
 
@@ -129,22 +122,24 @@ def encode_instruction(line_num, instruction, label_table, data_table):
         str: The 16-bit binary encoding of the instruction.
     """
     try:
-        # Remove commas and split the instruction into parts
         parts = instruction.replace(",", " ").split()
-        op = parts[0]  # Opcode
+        op = parts[0]
         binary = ""
 
         # R-Format Instructions
         if op in {"add", "sub", "and", "or", "slt"}:
             if len(parts) != 4:
                 raise ValueError(f"Invalid syntax for R-format instruction: {instruction}")
-            
-            # Extract registers
-            rs = register_to_binary(parts[2])  # Source register 1 (3 bits)
-            rt = register_to_binary(parts[3])  # Source register 2 (3 bits)
-            rd = register_to_binary(parts[1])  # Destination register (3 bits)
 
-            # Function codes for operations
+            rs = register_to_binary(parts[2])
+            if parts[3] in data_table:
+                rt = "000"
+                immediate = dec_to_bin(data_table[parts[3]], 6)
+            else:
+                rt = register_to_binary(parts[3])
+                immediate = "000000"
+            rd = register_to_binary(parts[1])
+
             func = {
                 "add": "010",
                 "sub": "110",
@@ -153,18 +148,21 @@ def encode_instruction(line_num, instruction, label_table, data_table):
                 "slt": "111",
             }[op]
 
-            # Properly concatenate fields: opcode (4 bits), rs, rt, rd, func (3 bits each)
-            binary = f"0000{rs}{rt}{rd}{func}"
+            if parts[3] in data_table:
+                binary = f"0001{rs}{rd}{immediate}"
+            else:
+                binary = f"0000{rs}{rt}{rd}{func}"
 
-            # Format the binary string for readability
-            formatted_binary = f"{binary[:4]} {binary[4:7]} {binary[7:10]} {binary[10:13]} {binary[13:]}"
+            formatted_binary = (
+                f"{binary[:4]} {binary[4:7]} {binary[7:10]} {binary[10:13]} {binary[13:]}"
+            )
             return formatted_binary
 
         # I-Format Instructions
         elif op in {"addi", "beq", "bne", "lw", "sw"}:
             if len(parts) < 4 and op not in {"lw", "sw"}:
                 raise ValueError(f"Invalid syntax for I-format instruction: {instruction}")
-            rt = register_to_binary(parts[1])  # Target register
+            rt = register_to_binary(parts[1])
             if op == "addi":
                 rs = register_to_binary(parts[2])
                 immediate = dec_to_bin(int(parts[3]), 6)
@@ -172,19 +170,19 @@ def encode_instruction(line_num, instruction, label_table, data_table):
                 rs = register_to_binary(parts[2])
                 if parts[3] not in label_table:
                     raise ValueError(f"Undefined label: {parts[3]}")
-                offset = label_table[parts[3]] - (line_num + 1)  # Calculate branch offset
+                offset = label_table[parts[3]] - (line_num + 1)
                 immediate = dec_to_bin(offset, 6)
             elif op in {"lw", "sw"}:
-                if "(" in parts[2]:  # Format: lw R1, 10(R2)
+                if "(" in parts[2]:
                     offset, base = parts[2].split("(")
                     offset = offset.strip()
                     base = base.strip(")")
                     rs = register_to_binary(base)
                     immediate = dec_to_bin(int(offset), 6)
-                else:  # Format: lw R1, var1
-                    rs = "000"  # Use R0 as base
+                else:
                     if parts[2] not in data_table:
                         raise ValueError(f"Undefined label in data section: {parts[2]}")
+                    rs = "000"
                     immediate = dec_to_bin(data_table[parts[2]], 6)
             opcode = {
                 "addi": "0101",
@@ -195,7 +193,6 @@ def encode_instruction(line_num, instruction, label_table, data_table):
             }[op]
             binary = f"{opcode}{rs}{rt}{immediate}"
 
-            # Format the binary string for readability
             formatted_binary = f"{binary[:4]} {binary[4:7]} {binary[7:10]} {binary[10:]}"
             return formatted_binary
 
@@ -209,7 +206,6 @@ def encode_instruction(line_num, instruction, label_table, data_table):
             opcode = "0100" if op == "j" else "1000"
             binary = f"{opcode}{address}"
 
-            # Format the binary string for readability
             formatted_binary = f"{binary[:4]} {binary[4:]}"
             return formatted_binary
 
@@ -217,18 +213,15 @@ def encode_instruction(line_num, instruction, label_table, data_table):
         elif op == "jr":
             if len(parts) != 2:
                 raise ValueError(f"Invalid syntax for jr instruction: {instruction}")
-            rs = register_to_binary(parts[1])  # Register source
-            binary = f"0111{rs}000000000"  # Opcode (4 bits) | rs (3 bits) | unused (9 bits)
+            rs = register_to_binary(parts[1])
+            binary = f"0111{rs}000000000"
 
-            # Format the binary string for readability
             formatted_binary = f"{binary[:4]} {binary[4:7]} {binary[7:10]} {binary[10:13]} {binary[13:]}"
             return formatted_binary
 
-        # Display Instruction (special)
         elif op == "display":
             binary = "1111000000000000"
 
-            # Format the binary string for readability
             formatted_binary = f"{binary[:4]} {binary[4:7]} {binary[7:]}"
             return formatted_binary
 
@@ -236,7 +229,6 @@ def encode_instruction(line_num, instruction, label_table, data_table):
             raise ValueError(f"Unknown instruction: {op}")
 
     except ValueError as e:
-        # Provide helpful debugging context
         raise ValueError(f"Error encoding instruction at line {line_num}: '{instruction}' -> {e}")
 
 def encode_program(lines, label_table, data_table):
@@ -267,10 +259,8 @@ def post_process(lines):
     Returns:
         list of str: List of hexadecimal strings.
     """
-    # Convert binary strings to hexadecimal strings
     hex_instructions = [f"{int(line.replace(' ', ''), 2):04x}" for line in lines]
 
-    # Add spaces between hexadecimal values
     formatted_hex = " ".join(hex_instructions)
 
     return [formatted_hex]

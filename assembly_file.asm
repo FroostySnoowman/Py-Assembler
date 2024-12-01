@@ -1,12 +1,17 @@
 .data
-screenStart: 16384    # 0x4000 - Start of the screen
-screenEnd: 24576      # 0x6000 - End of the screen
-squareColor: 65535    # 0xFFFF - Color of the square
-rowShift: 128         # Number of pixels per row
-xVelocity: 1          # Initial horizontal velocity
-yVelocity: 1          # Initial vertical velocity
-squarePos: 16400      # Initial position of the square
-delay: 2500           # Delay for smoother movement
+screenStart: 16384      # 0x4000 - Start of the screen
+screenEnd: 24576        # 0x6000 - End of the screen
+squareColor: 65535      # 0xFFFF - Color of the square
+rowShift: 128           # Number of pixels per row
+xVelocity: 1            # Initial horizontal velocity
+yVelocity: 1            # Initial vertical velocity
+squarePos: 16400        # Initial position of the square
+delay: 2500             # Delay for smoother movement
+keyboardMem: 24576      # 0x6000 - Address of keyboard memory
+upKey: 38               # Key for moving up
+downKey: 40             # Key for moving down
+leftKey: 37             # Key for moving left
+rightKey: 39            # Key for moving right
 
 .text
 j main
@@ -39,42 +44,48 @@ clearSquare:
 
     jr R7
 
-# Function to check for collisions with the screen edges
-checkBounce:
-    lw R1, squarePos      # Load the square's current position
-    lw R2, rowShift       # Load row shift
-    lw R3, xVelocity      # Load horizontal velocity
-    lw R4, yVelocity      # Load vertical velocity
+# Function to handle keyboard input and adjust velocities
+handleKeyboard:
+    lw R2, keyboardMem    # Load the keyboard input
+    lw R2, 0(R2)          # Read the key pressed
 
-    # Check left and right edges
-    add R5, R1, R3        # Compute new X position
-    slt R6, R5, screenStart # Check if it's less than screenStart
-    bne R6, R0, reverseX   # Reverse X direction if hitting the left edge
+    # Check for up arrow key
+    lw R3, upKey
+    beq R2, R3, moveUp
 
-    lw R6, screenEnd      # Load screenEnd
-    slt R6, R5, R6        # Check if it's beyond screenEnd
-    beq R6, R0, reverseX  # Reverse X direction if hitting the right edge
+    # Check for down arrow key
+    lw R3, downKey
+    beq R2, R3, moveDown
 
-    # Check top and bottom edges
-    add R5, R1, R4        # Compute new Y position
-    slt R6, R5, screenStart # Check if it's less than screenStart
-    bne R6, R0, reverseY   # Reverse Y direction if hitting the top edge
+    # Check for left arrow key
+    lw R3, leftKey
+    beq R2, R3, moveLeft
 
-    lw R6, screenEnd      # Load screenEnd
-    slt R6, R5, R6        # Check if it's beyond screenEnd
-    beq R6, R0, reverseY  # Reverse Y direction if hitting the bottom edge
+    # Check for right arrow key
+    lw R3, rightKey
+    beq R2, R3, moveRight
 
-    j bounceDone          # Skip if no collision
+    # No valid key pressed; return
+    jr R7
 
-reverseX:
-    sub R3, R0, R3        # Reverse horizontal velocity
-    sw R3, xVelocity
-
-reverseY:
-    sub R4, R0, R4        # Reverse vertical velocity
+moveUp:
+    addi R4, R0, -1       # Set vertical velocity to -1
     sw R4, yVelocity
+    jr R7
 
-bounceDone:
+moveDown:
+    addi R4, R0, 1        # Set vertical velocity to +1
+    sw R4, yVelocity
+    jr R7
+
+moveLeft:
+    addi R3, R0, -1       # Set horizontal velocity to -1
+    sw R3, xVelocity
+    jr R7
+
+moveRight:
+    addi R3, R0, 1        # Set horizontal velocity to +1
+    sw R3, xVelocity
     jr R7
 
 # Main function
@@ -83,7 +94,7 @@ main:
 
 mainLoop:
     jal clearSquare       # Clear the square at the current position
-    jal checkBounce       # Check for collisions
+    jal handleKeyboard    # Handle keyboard input
     lw R3, xVelocity      # Load horizontal velocity
     lw R4, yVelocity      # Load vertical velocity
     lw R2, squarePos      # Load current square position
